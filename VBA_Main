@@ -40,13 +40,13 @@ Sub Consolidate_BDD()
     Dim memoColPos As Long            ' Position colonne "Memo/Description"
     Dim numCompteColPos As Long       ' Position colonne "Num Compte"
     Dim classColPos As Long           ' Position colonne "Class"
-    Dim concatColPos As Long          ' Position colonne "Concat"
+    Dim concatColPos As Long           ' Position colonne "Concat"
     Dim intercoColPos As Long         ' Position colonne "Interco"
-    ' MODIF : Ajout des variables pour les nouvelles colonnes
     Dim concat2ColPos As Long         ' Position colonne "Concat2"
     Dim plTranscoColPos As Long       ' Position colonne "P&L Transco"
     Dim plSpeTranscoColPos As Long    ' Position colonne "P&L Spe Transco"
 
+   
     ' Variables logiques (True/False) pour savoir quoi faire
     Dim useUSDforLC As Boolean        ' True = utiliser USD au lieu de LC pour Costs_Inc
     Dim isFFSASorInno As Boolean     ' True = feuille FF_SAS ou Inno (traitement spécial)
@@ -119,7 +119,6 @@ Sub Consolidate_BDD()
     '==================================================================================
     ' Structure finale qu'on veut avoir dans BDD_Costs
     Dim newHeaders As Variant
-    ' MODIF : Ajout des nouvelles colonnes dans l'ordre spécifié
     newHeaders = Array("Entity", "Year", "Month", "Interco", "Num Compte", "Name", "Memo/Description", "Class", "Concat", "Concat2", "Compte", "Lib Compte", "P&L Transco", "P&L Spe Transco", "P&L", "Fournisseur", "P&L LC", "Currency", "P&L USD")
 
 
@@ -141,7 +140,7 @@ Sub Consolidate_BDD()
     ' Identifier où se trouve chaque colonne importante (pour les formules plus tard)
     For i = 1 To headers.Count
         Select Case Trim(headers(i))
-            Case "P&L LC": formatColLC = i         ' Colonne à formater en monétaire
+            Case "P&L LC": formatColLC = i          ' Colonne à formater en monétaire
             Case "P&L USD": formatColUSD = i       ' Colonne à formater en monétaire
             Case "P&L": plColPos = i               ' Pour les formules de recherche
             Case "Fournisseur": fournisseurColPos = i
@@ -154,7 +153,6 @@ Sub Consolidate_BDD()
             Case "Class": classColPos = i
             Case "Concat": concatColPos = i        ' Calculé par formule
             Case "Interco": intercoColPos = i
-            ' MODIF : Ajout des nouvelles colonnes
             Case "Concat2": concat2ColPos = i
             Case "P&L Transco": plTranscoColPos = i
             Case "P&L Spe Transco": plSpeTranscoColPos = i
@@ -198,7 +196,7 @@ Sub Consolidate_BDD()
         On Error Resume Next
         Set ws = ThisWorkbook.Worksheets(wsName)
         On Error GoTo ErrorHandler
-        
+         
         ' Si la feuille n'existe pas, passer à la suivante
         If ws Is Nothing Then GoTo NextSheet
 
@@ -224,7 +222,7 @@ Sub Consolidate_BDD()
         Next c
 
         '==============================================================================
-        ' VÉRIFICATION DES COLONNES OBLIGATOIRES
+        ' VÉRIFICATION DES COLONnes OBLIGATOIRES
         '==============================================================================
         
         ' Ces colonnes DOIVENT exister dans chaque feuille source
@@ -249,7 +247,7 @@ Sub Consolidate_BDD()
         Next i
 
         '==============================================================================
-        ' VÉRIFICATION DES COLONNES OPTIONNELLES
+        ' VÉRIFICATION DES COLONnes OPTIONNELLES
         '==============================================================================
         ' Ces colonnes peuvent exister ou pas, on s'adapte
         hasFournisseur = colMap.exists("Fournisseur")
@@ -367,6 +365,7 @@ Sub Consolidate_BDD()
                             cellValue = ""
                         End If
                         
+                
                     Case "Compte"
                         ' Simple copie si la colonne existe
                         If hasCompte Then
@@ -375,10 +374,11 @@ Sub Consolidate_BDD()
                             cellValue = ""
                         End If
                         
+     
                     Case "Concat", "Concat2", "P&L Transco", "P&L Spe Transco"
                         ' Ces colonnes seront calculées par une formule plus tard
                         cellValue = ""
-                        
+                         
                     Case "Lib Compte"
                         ' Règle complexe selon l'année
                         If currentYear = 2024 Then
@@ -395,7 +395,7 @@ Sub Consolidate_BDD()
                             ' Pour 2025, sera calculé par formule plus tard
                             cellValue = ""
                         End If
-                        
+                         
                     Case "P&L"
                         ' Règle selon l'année
                         If currentYear = 2024 And hasPL Then
@@ -406,8 +406,8 @@ Sub Consolidate_BDD()
                             cellValue = ""
                         End If
                         
+  
                     Case "Fournisseur"
-                        ' MODIF : Logique pour Fournisseur
                         If currentYear = 2024 Then
                             If hasFournisseur Then
                                 cellValue = ws.Cells(r, colMap("Fournisseur")).Value
@@ -455,6 +455,7 @@ Sub Consolidate_BDD()
             Next i
         Next r
 
+       
         '==============================================================================
         ' COLLAGE DES DONNÉES DANS BDD_COSTS
         '==============================================================================
@@ -462,7 +463,7 @@ Sub Consolidate_BDD()
         wsDest.Range(wsDest.Cells(destRow, 1), wsDest.Cells(destRow + srcRowCount - 1, headers.Count)).Value = output
 
         '==============================================================================
-        ' FORMATAGE DES COLONNES MONÉTAIRES
+        ' FORMATAGE DES COLONnes MONÉTAIRES
         '==============================================================================
         ' Appliquer un format "nombre avec séparateurs" aux colonnes d'argent
         If formatColLC > 0 Then
@@ -511,7 +512,7 @@ If lastRow > 1 Then
     Next r
 
     '==========================================================================
-    ' MODIF : FORMULE POUR LA COLONNE "CONCAT2"
+    ' FORMULE POUR LA COLONNE "CONCAT2"
     '==========================================================================
     For r = 2 To lastRow
         wsDest.Cells(r, concat2ColPos).Formula = _
@@ -553,7 +554,7 @@ If lastRow > 1 Then
     Next r
 
     '==========================================================================
-    ' MODIF : FORMULES POUR LES NOUVELLES COLONNES P&L
+    ' FORMULES POUR LES NOUVELLES COLONNES P&L
     '==========================================================================
     For r = 2 To lastRow
         If CLng(wsDest.Cells(r, 2).Value) = 2025 Then
@@ -567,8 +568,8 @@ If lastRow > 1 Then
             concatAddr = wsDest.Cells(r, concatColPos).Address(False, False)
             
             With wsDest.Cells(r, plSpeTranscoColPos)
-                .FormulaArray = "=IFERROR(INDEX(Transco_New!$S$2:$S$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$L$2:$L$" & lastRowTransco & "=" & concat2Addr & "),0)),""__PLACEHOLDER__"")"
-                .Replace """__PLACEHOLDER__""", "IFERROR(INDEX(Transco_New!$S$2:$S$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$L$2:$L$" & lastRowTransco & "=" & concatAddr & "),0)),""n.a."")", xlPart
+                .FormulaArray = "=IFERROR(INDEX(Transco_New!$T$2:$T$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$M$2:$M$" & lastRowTransco & "=" & concat2Addr & "),0)),""__PLACEHOLDER__"")"
+                .Replace """__PLACEHOLDER__""", "IFERROR(INDEX(Transco_New!$T$2:$T$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$M$2:$M$" & lastRowTransco & "=" & concatAddr & "),0)),""n.a."")", xlPart
             End With
 
             ' --- P&L ---
@@ -578,7 +579,7 @@ If lastRow > 1 Then
     Next r
 
     '==========================================================================
-    ' MODIF : FORMULE POUR LA COLONNE "FOURNISSEUR" (ANNÉE 2025 SEULEMENT)
+    ' FORMULE POUR LA COLONNE "FOURNISSEUR" (ANNÉE 2025 SEULEMENT)
     '==========================================================================
     For r = 2 To lastRow
         If CLng(wsDest.Cells(r, 2).Value) = 2025 Then
@@ -588,11 +589,9 @@ If lastRow > 1 Then
             concatAddr_f = wsDest.Cells(r, concatColPos).Address(False, False)
             
             With wsDest.Cells(r, fournisseurColPos)
-                .FormulaArray = "=IFERROR(INDEX(Transco_New!$R$2:$R$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$L$2:$L$" & lastRowTransco & "=" & concat2Addr_f & "),0)),""__PLACEHOLDER__"")"
+                .FormulaArray = "=IFERROR(INDEX(Transco_New!$S$2:$S$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$M$2:$M$" & lastRowTransco & "=" & concat2Addr_f & "),0)),""__PLACEHOLDER__"")"
                 
-                ' --- MODIFICATION ICI ---
-                ' On encadre la deuxième formule INDEX/MATCH avec un IFERROR pour renvoyer "n.a." en cas d'erreur.
-                .Replace """__PLACEHOLDER__""", "IFERROR(INDEX(Transco_New!$R$2:$R$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$L$2:$L$" & lastRowTransco & "=" & concatAddr_f & "),0)), ""n.a."")", xlPart
+                .Replace """__PLACEHOLDER__""", "IFERROR(INDEX(Transco_New!$S$2:$S$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$M$2:$M$" & lastRowTransco & "=" & concatAddr_f & "),0)), ""n.a."")", xlPart
             End With
         End If
     Next r
