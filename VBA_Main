@@ -2,26 +2,8 @@ Sub Consolidate_BDD()
     '==================================================================================
     ' MACRO DE CONSOLIDATION DES DONNÉES BDD_COSTS
     '==================================================================================
-    '
-    ' MODE D'EMPLOI :
-    ' Cette macro consolidé automatiquement les données de plusieurs feuilles Excel
-    ' dans une seule feuille appelée "BDD_Costs" pour faciliter l'analyse.
-    '
-    ' PRÉREQUIS :
-    ' - Le classeur doit contenir les feuilles sources : Costs_Inc, Costs_Canada, etc.
-    ' - Il doit exister une feuille "BDD_Costs" pour recevoir les données consolidées
-    ' - Il doit exister une feuille "Transco_New" contenant les tables de correspondance
-    '
-    ' CE QUE FAIT LA MACRO :
-    ' 1. Vide la feuille BDD_Costs (garde seulement les en-têtes)
-    ' 2. Lit chaque feuille source une par une
-    ' 3. Copie les données dans BDD_Costs en normalisant le format
-    ' 4. Applique des formules pour calculer certaines colonnes
-    ' 5. Formate les colonnes monétaires
-    '
-    ' DURÉE D'EXÉCUTION : Environ 1-3 minutes selon la taille des données
-    '==================================================================================
-
+    ' ... (le début du code est inchangé) ...
+    
     ' DÉCLARATION DE TOUTES LES VARIABLES
     ' (En VBA, il faut déclarer toutes les variables avant de les utiliser)
     '==================================================================================
@@ -32,6 +14,7 @@ Sub Consolidate_BDD()
     Dim ws As Worksheet                 ' Feuille source (celle qu'on lit)
     Dim wsDest As Worksheet            ' Feuille destination (BDD_Costs)
     
+ 
     ' Variables pour gérer les colonnes et en-têtes
     Dim headers As Collection           ' Liste des en-têtes de BDD_Costs
     Dim headerName As String           ' Nom d'un en-tête temporaire
@@ -59,7 +42,11 @@ Sub Consolidate_BDD()
     Dim classColPos As Long           ' Position colonne "Class"
     Dim concatColPos As Long          ' Position colonne "Concat"
     Dim intercoColPos As Long         ' Position colonne "Interco"
-    
+    ' MODIF : Ajout des variables pour les nouvelles colonnes
+    Dim concat2ColPos As Long         ' Position colonne "Concat2"
+    Dim plTranscoColPos As Long       ' Position colonne "P&L Transco"
+    Dim plSpeTranscoColPos As Long    ' Position colonne "P&L Spe Transco"
+
     ' Variables logiques (True/False) pour savoir quoi faire
     Dim useUSDforLC As Boolean        ' True = utiliser USD au lieu de LC pour Costs_Inc
     Dim isFFSASorInno As Boolean     ' True = feuille FF_SAS ou Inno (traitement spécial)
@@ -89,6 +76,7 @@ Sub Consolidate_BDD()
     Application.Calculation = xlCalculationManual  ' Pas de calcul automatique
     Application.EnableEvents = False        ' Pas d'événements (macros automatiques)
 
+ 
     '==================================================================================
     ' DÉFINITION DES FEUILLES À TRAITER
     '==================================================================================
@@ -131,7 +119,9 @@ Sub Consolidate_BDD()
     '==================================================================================
     ' Structure finale qu'on veut avoir dans BDD_Costs
     Dim newHeaders As Variant
-    newHeaders = Array("Entity", "Year", "Month", "Interco", "Num Compte", "Name", "Memo/Description", "Class", "Concat", "Compte", "Lib Compte", "P&L", "Fournisseur", "P&L LC", "Currency", "P&L USD")
+    ' MODIF : Ajout des nouvelles colonnes dans l'ordre spécifié
+    newHeaders = Array("Entity", "Year", "Month", "Interco", "Num Compte", "Name", "Memo/Description", "Class", "Concat", "Concat2", "Compte", "Lib Compte", "P&L Transco", "P&L Spe Transco", "P&L", "Fournisseur", "P&L LC", "Currency", "P&L USD")
+
 
     ' Écrire ces en-têtes dans la première ligne de BDD_Costs
     For i = 1 To UBound(newHeaders) + 1
@@ -164,9 +154,14 @@ Sub Consolidate_BDD()
             Case "Class": classColPos = i
             Case "Concat": concatColPos = i        ' Calculé par formule
             Case "Interco": intercoColPos = i
+            ' MODIF : Ajout des nouvelles colonnes
+            Case "Concat2": concat2ColPos = i
+            Case "P&L Transco": plTranscoColPos = i
+            Case "P&L Spe Transco": plSpeTranscoColPos = i
         End Select
     Next i
 
+ 
     '==================================================================================
     ' VÉRIFICATION DES COLONNES CRITIQUES
     '==================================================================================
@@ -218,6 +213,7 @@ Sub Consolidate_BDD()
         Set colMap = CreateObject("Scripting.Dictionary")
         useUSDforLC = False
 
+     
         ' Lire les en-têtes de la feuille source (ligne 1)
         For c = 1 To ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
             headerName = Trim(CStr(ws.Cells(1, c).Value))
@@ -379,8 +375,8 @@ Sub Consolidate_BDD()
                             cellValue = ""
                         End If
                         
-                    Case "Concat"
-                        ' Cette colonne sera calculée par une formule plus tard
+                    Case "Concat", "Concat2", "P&L Transco", "P&L Spe Transco"
+                        ' Ces colonnes seront calculées par une formule plus tard
                         cellValue = ""
                         
                     Case "Lib Compte"
@@ -411,9 +407,14 @@ Sub Consolidate_BDD()
                         End If
                         
                     Case "Fournisseur"
-                        If hasFournisseur Then
-                            cellValue = ws.Cells(r, colMap("Fournisseur")).Value
-                        Else
+                        ' MODIF : Logique pour Fournisseur
+                        If currentYear = 2024 Then
+                            If hasFournisseur Then
+                                cellValue = ws.Cells(r, colMap("Fournisseur")).Value
+                            Else
+                                cellValue = ""
+                            End If
+                        Else ' Pour 2025 et autres années, calcul par formule
                             cellValue = ""
                         End If
                         
@@ -465,10 +466,10 @@ Sub Consolidate_BDD()
         '==============================================================================
         ' Appliquer un format "nombre avec séparateurs" aux colonnes d'argent
         If formatColLC > 0 Then
-            wsDest.Range(wsDest.Cells(destRow, formatColLC), wsDest.Cells(destRow + srcRowCount - 1, formatColLC)).NumberFormat = "# ##0;(# ##0);""-"""
+            wsDest.Range(wsDest.Cells(destRow, formatColLC), wsDest.Cells(destRow + srcRowCount - 1, formatColLC)).NumberFormat = "#,##0;(#,##0);""-"""
         End If
         If formatColUSD > 0 Then
-            wsDest.Range(wsDest.Cells(destRow, formatColUSD), wsDest.Cells(destRow + srcRowCount - 1, formatColUSD)).NumberFormat = "# ##0;(# ##0);""-"""
+            wsDest.Range(wsDest.Cells(destRow, formatColUSD), wsDest.Cells(destRow + srcRowCount - 1, formatColUSD)).NumberFormat = "#,##0;(#,##0);""-"""
         End If
 
         ' Préparer la position pour la feuille suivante
@@ -500,17 +501,31 @@ If lastRow > 1 Then
     ' FORMULE POUR LA COLONNE "CONCAT"
     '==========================================================================
     ' Cette formule combine plusieurs colonnes en une seule chaîne
-For r = 2 To lastRow
-    wsDest.Cells(r, concatColPos).Formula = _
-        "=CONCAT(" & _
-        wsDest.Cells(r, compteColPos).Address(False, False) & "," & _
-        wsDest.Cells(r, nameColPos).Address(False, False) & "," & _
-        wsDest.Cells(r, classColPos).Address(False, False) & "," & _
-        wsDest.Cells(r, memoColPos).Address(False, False) & ")"
-Next r
+    For r = 2 To lastRow
+        wsDest.Cells(r, concatColPos).Formula = _
+            "=CONCAT(" & _
+            wsDest.Cells(r, compteColPos).Address(False, False) & "," & _
+            wsDest.Cells(r, nameColPos).Address(False, False) & "," & _
+            wsDest.Cells(r, classColPos).Address(False, False) & "," & _
+            wsDest.Cells(r, memoColPos).Address(False, False) & ")"
+    Next r
 
     '==========================================================================
-    ' FORMULE POUR LA COLONNE "CURRENCY" (NOUVEAU)
+    ' MODIF : FORMULE POUR LA COLONNE "CONCAT2"
+    '==========================================================================
+    For r = 2 To lastRow
+        wsDest.Cells(r, concat2ColPos).Formula = _
+            "=CONCAT(" & _
+            wsDest.Cells(r, compteColPos).Address(False, False) & "," & _
+            wsDest.Cells(r, nameColPos).Address(False, False) & "," & _
+            wsDest.Cells(r, classColPos).Address(False, False) & "," & _
+            wsDest.Cells(r, memoColPos).Address(False, False) & "," & _
+            wsDest.Cells(r, formatColLC).Address(False, False) & ")" ' Ajout de P&L LC
+    Next r
+
+
+    '==========================================================================
+    ' FORMULE POUR LA COLONNE "CURRENCY"
     '==========================================================================
     ' Recherche la devise dans Transco_New en fonction de l'entité (colonne A)
     For r = 2 To lastRow
@@ -524,8 +539,7 @@ Next r
     '==========================================================================
     ' Recherche dans Transco_New pour trouver le libellé correspondant au compte
     For r = 2 To lastRow
-        currentYear = wsDest.Cells(r, 2).Value
-        If currentYear = 2025 Then
+        If CLng(wsDest.Cells(r, 2).Value) = 2025 Then
             If wsDest.Cells(r, 1).Value = "Costs_FF_SAS" Or wsDest.Cells(r, 1).Value = "Costs_Inno" Then
                 ' Cas spécial : pour FF_SAS/Inno, copier simplement la valeur du compte
                 wsDest.Cells(r, libCompteColPos).Value = wsDest.Cells(r, compteColPos).Value
@@ -539,22 +553,50 @@ Next r
     Next r
 
     '==========================================================================
-    ' FORMULE POUR LA COLONNE "P&L" (ANNÉE 2025 SEULEMENT)
+    ' MODIF : FORMULES POUR LES NOUVELLES COLONNES P&L
     '==========================================================================
-    ' Recherche dans Transco_New avec fallback si pas trouvé
     For r = 2 To lastRow
-        currentYear = wsDest.Cells(r, 2).Value
-        If currentYear = 2025 Then
-            Dim formulaTextPL As String
-            ' Formule complexe avec IFERROR pour avoir une valeur de secours
-            formulaTextPL = "=IFERROR(" & _
-                "INDEX(Transco_New!$S$2:$S$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$L$2:$L$" & lastRowTransco & "=" & wsDest.Cells(r, concatColPos).Address(False, False) & "),0))," & _
-                "INDEX(Transco_New!$H$2:$H$" & lastRowTransco & ",MATCH(1,(Transco_New!$D$2:$D$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$F$2:$F$" & lastRowTransco & "=" & wsDest.Cells(r, compteColPos).Address(False, False) & "),0))" & _
-                ")"
-            wsDest.Cells(r, plColPos).FormulaArray = formulaTextPL
+        If CLng(wsDest.Cells(r, 2).Value) = 2025 Then
+            ' --- P&L Transco ---
+            wsDest.Cells(r, plTranscoColPos).FormulaArray = _
+                "=IFERROR(INDEX(Transco_New!$H$2:$H$" & lastRowTransco & ",MATCH(1,(Transco_New!$D$2:$D$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$F$2:$F$" & lastRowTransco & "=" & wsDest.Cells(r, compteColPos).Address(False, False) & "),0)),""n.a."")"
+            
+            ' --- P&L Spe Transco (Technique pour éviter la limite de 255 caractères) ---
+            Dim concat2Addr As String, concatAddr As String
+            concat2Addr = wsDest.Cells(r, concat2ColPos).Address(False, False)
+            concatAddr = wsDest.Cells(r, concatColPos).Address(False, False)
+            
+            With wsDest.Cells(r, plSpeTranscoColPos)
+                .FormulaArray = "=IFERROR(INDEX(Transco_New!$S$2:$S$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$L$2:$L$" & lastRowTransco & "=" & concat2Addr & "),0)),""__PLACEHOLDER__"")"
+                .Replace """__PLACEHOLDER__""", "IFERROR(INDEX(Transco_New!$S$2:$S$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$L$2:$L$" & lastRowTransco & "=" & concatAddr & "),0)),""n.a."")", xlPart
+            End With
+
+            ' --- P&L ---
+            wsDest.Cells(r, plColPos).Formula = _
+                "=IF(" & wsDest.Cells(r, plSpeTranscoColPos).Address(False, False) & "<>""n.a.""," & wsDest.Cells(r, plSpeTranscoColPos).Address(False, False) & "," & wsDest.Cells(r, plTranscoColPos).Address(False, False) & ")"
         End If
     Next r
-    
+
+    '==========================================================================
+    ' MODIF : FORMULE POUR LA COLONNE "FOURNISSEUR" (ANNÉE 2025 SEULEMENT)
+    '==========================================================================
+    For r = 2 To lastRow
+        If CLng(wsDest.Cells(r, 2).Value) = 2025 Then
+            ' --- Fournisseur (Technique pour éviter la limite de 255 caractères) ---
+            Dim concat2Addr_f As String, concatAddr_f As String
+            concat2Addr_f = wsDest.Cells(r, concat2ColPos).Address(False, False)
+            concatAddr_f = wsDest.Cells(r, concatColPos).Address(False, False)
+            
+            With wsDest.Cells(r, fournisseurColPos)
+                .FormulaArray = "=IFERROR(INDEX(Transco_New!$R$2:$R$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$L$2:$L$" & lastRowTransco & "=" & concat2Addr_f & "),0)),""__PLACEHOLDER__"")"
+                
+                ' --- MODIFICATION ICI ---
+                ' On encadre la deuxième formule INDEX/MATCH avec un IFERROR pour renvoyer "n.a." en cas d'erreur.
+                .Replace """__PLACEHOLDER__""", "IFERROR(INDEX(Transco_New!$R$2:$R$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$L$2:$L$" & lastRowTransco & "=" & concatAddr_f & "),0)), ""n.a."")", xlPart
+            End With
+        End If
+    Next r
+
     ' Restaurer les paramètres Excel
     Application.EnableEvents = True
     Application.Calculation = oldCalculationState
@@ -587,48 +629,3 @@ ErrorHandler:
 
 End Sub
 
-'==================================================================================
-' NOTES TECHNIQUES POUR COMPRENDRE LE CODE
-'==================================================================================
-'
-' CONCEPTS VBA UTILISÉS :
-'
-' 1. COLLECTIONS vs DICTIONNAIRES :
-'    - Collection : liste ordonnée (headers.Add "Entity")
-'    - Dictionary : paires clé-valeur (colMap("Entity") = 5)
-'
-' 2. VARIABLES OBJECT :
-'    - Dim ws As Worksheet : variable qui pointe vers une feuille
-'    - Set ws = ... : obligatoire pour affecter un objet
-'
-' 3. GESTION D'ERREURS :
-'    - On Error GoTo ErrorHandler : si erreur, aller à cette étiquette
-'    - On Error Resume Next : ignorer l'erreur et continuer
-'
-' 4. OPTIMISATION PERFORMANCE :
-'    - ScreenUpdating = False : pas de rafraîchissement visuel
-'    - Calculation = Manual : pas de recalcul automatique
-'    - Copie par blocs (Range.Value = array) au lieu de cellule par cellule
-'
-' 5. FORMULES MATRICIELLES :
-'    - FormulaArray : pour des formules complexes avec critères multiples
-'    - INDEX/MATCH : alternative plus puissante à RECHERCHEV
-'
-' 6. TYPES DE DONNÉES :
-'    - Variant : peut contenir n'importe quoi (nombre, texte, date...)
-'    - Long : nombre entier (pour les compteurs, positions)
-'    - Boolean : True/False (pour les flags logiques)
-'    - String : chaîne de caractères
-'
-' FLUX D'EXÉCUTION :
-' 1. Initialisation et vérifications
-' 2. Nettoyage de la feuille destination
-' 3. Pour chaque feuille source :
-'    a. Analyser sa structure
-'    b. Mapper ses colonnes
-'    c. Copier ses données dans un tableau
-'    d. Coller le tableau dans BDD_Costs
-' 4. Appliquer les formules complexes
-' 5. Nettoyer et finaliser
-'
-'==================================================================================
