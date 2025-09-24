@@ -1,0 +1,634 @@
+Sub Consolidate_BDD()
+    '==================================================================================
+    ' MACRO DE CONSOLIDATION DES DONNÉES BDD_COSTS
+    '==================================================================================
+    '
+    ' MODE D'EMPLOI :
+    ' Cette macro consolidé automatiquement les données de plusieurs feuilles Excel
+    ' dans une seule feuille appelée "BDD_Costs" pour faciliter l'analyse.
+    '
+    ' PRÉREQUIS :
+    ' - Le classeur doit contenir les feuilles sources : Costs_Inc, Costs_Canada, etc.
+    ' - Il doit exister une feuille "BDD_Costs" pour recevoir les données consolidées
+    ' - Il doit exister une feuille "Transco_New" contenant les tables de correspondance
+    '
+    ' CE QUE FAIT LA MACRO :
+    ' 1. Vide la feuille BDD_Costs (garde seulement les en-têtes)
+    ' 2. Lit chaque feuille source une par une
+    ' 3. Copie les données dans BDD_Costs en normalisant le format
+    ' 4. Applique des formules pour calculer certaines colonnes
+    ' 5. Formate les colonnes monétaires
+    '
+    ' DURÉE D'EXÉCUTION : Environ 1-3 minutes selon la taille des données
+    '==================================================================================
+
+    ' DÉCLARATION DE TOUTES LES VARIABLES
+    ' (En VBA, il faut déclarer toutes les variables avant de les utiliser)
+    '==================================================================================
+    
+    ' Variables pour gérer les feuilles Excel
+    Dim selectedSheets As Variant        ' Liste des feuilles à traiter
+    Dim wsName As Variant               ' Nom de la feuille en cours de traitement
+    Dim ws As Worksheet                 ' Feuille source (celle qu'on lit)
+    Dim wsDest As Worksheet            ' Feuille destination (BDD_Costs)
+    
+    ' Variables pour gérer les colonnes et en-têtes
+    Dim headers As Collection           ' Liste des en-têtes de BDD_Costs
+    Dim headerName As String           ' Nom d'un en-tête temporaire
+    Dim colMap As Object              ' Dictionnaire : nom colonne ? numéro colonne
+    
+    ' Variables pour les boucles et positions
+    Dim i As Long, r As Long, c As Long  ' Compteurs pour les boucles
+    Dim output() As Variant             ' Tableau temporaire pour stocker les données
+    Dim lastRow As Long                ' Dernière ligne avec des données
+    Dim destRow As Long               ' Ligne où on va coller dans BDD_Costs
+    Dim srcRowCount As Long           ' Nombre de lignes à copier
+    
+    ' Variables pour identifier les positions des colonnes importantes
+    ' (On stocke le numéro de colonne pour chaque type de données)
+    Dim formatColLC As Long           ' Position colonne "P&L LC"
+    Dim formatColUSD As Long          ' Position colonne "P&L USD"
+    Dim plColPos As Long              ' Position colonne "P&L"
+    Dim fournisseurColPos As Long     ' Position colonne "Fournisseur"
+    Dim compteColPos As Long          ' Position colonne "Compte"
+    Dim libCompteColPos As Long       ' Position colonne "Lib Compte"
+    Dim currencyColPos As Long        ' Position colonne "Currency"
+    Dim nameColPos As Long            ' Position colonne "Name"
+    Dim memoColPos As Long            ' Position colonne "Memo/Description"
+    Dim numCompteColPos As Long       ' Position colonne "Num Compte"
+    Dim classColPos As Long           ' Position colonne "Class"
+    Dim concatColPos As Long          ' Position colonne "Concat"
+    Dim intercoColPos As Long         ' Position colonne "Interco"
+    
+    ' Variables logiques (True/False) pour savoir quoi faire
+    Dim useUSDforLC As Boolean        ' True = utiliser USD au lieu de LC pour Costs_Inc
+    Dim isFFSASorInno As Boolean     ' True = feuille FF_SAS ou Inno (traitement spécial)
+    
+    ' Variables pour vérifier quelles colonnes existent dans chaque feuille source
+    Dim hasFournisseur As Boolean, hasCompte As Boolean, hasLibCompte As Boolean, hasPL As Boolean
+    Dim hasName As Boolean, hasMemo As Boolean, hasLibelle As Boolean, hasComplement As Boolean
+    Dim hasNumCompte As Boolean, hasJrnFolio As Boolean, hasClass As Boolean, hasInterco As Boolean
+    
+    ' Variables pour traiter les données
+    Dim cellValue As Variant          ' Valeur d'une cellule qu'on est en train de lire
+    Dim strValue As String           ' Version texte d'une valeur
+    Dim currentYear As Long          ' Année de la ligne en cours
+    Dim currentMonth As Long         ' Mois de la ligne en cours
+    Dim requiredHeaders As Variant   ' Liste des colonnes obligatoires
+    Dim missingColumns As String     ' Liste des colonnes manquantes (pour erreurs)
+
+    ' GESTION D'ERREURS
+    ' Si une erreur survient, aller à la section "ErrorHandler"
+    On Error GoTo ErrorHandler
+
+    '==================================================================================
+    ' OPTIMISATION DES PERFORMANCES
+    '==================================================================================
+    ' On désactive les mises à jour d'écran et calculs pour aller plus vite
+    Application.ScreenUpdating = False      ' Pas de rafraîchissement d'écran
+    Application.Calculation = xlCalculationManual  ' Pas de calcul automatique
+    Application.EnableEvents = False        ' Pas d'événements (macros automatiques)
+
+    '==================================================================================
+    ' DÉFINITION DES FEUILLES À TRAITER
+    '==================================================================================
+    ' Liste des feuilles qu'on va consolider (on peut en ajouter/enlever ici)
+    selectedSheets = Array("Costs_Inc", "Costs_Canada", "Costs_Singapour", "Costs_Apac", "Costs_Europe", "Costs_FF_SAS", "Costs_Inno")
+
+    '==================================================================================
+    ' VÉRIFICATION QUE LES FEUILLES OBLIGATOIRES EXISTENT
+    '==================================================================================
+    
+    ' Vérifier que la feuille de destination "BDD_Costs" existe
+    On Error Resume Next  ' Si erreur, continuer sans planter
+    Set wsDest = ThisWorkbook.Worksheets("BDD_Costs")
+    On Error GoTo ErrorHandler  ' Remettre la gestion d'erreur normale
+    
+    If wsDest Is Nothing Then
+        MsgBox "La feuille 'BDD_Costs' n'existe pas dans ce classeur.", vbCritical
+        Exit Sub  ' Arrêter la macro
+    End If
+
+    ' Vérifier que la feuille "Transco_New" existe (pour les formules)
+    On Error Resume Next
+    Dim wsTransco As Worksheet
+    Set wsTransco = ThisWorkbook.Worksheets("Transco_New")
+    On Error GoTo ErrorHandler
+    
+    If wsTransco Is Nothing Then
+        MsgBox "La feuille 'Transco_New' n'existe pas dans ce classeur.", vbCritical
+        Exit Sub
+    End If
+
+    '==================================================================================
+    ' NETTOYAGE DE LA FEUILLE DE DESTINATION
+    '==================================================================================
+    ' Supprimer TOUTES les données (garder seulement la ligne 1 avec les en-têtes)
+    wsDest.Rows("2:" & wsDest.Rows.Count).ClearContents
+
+    '==================================================================================
+    ' DÉFINITION DES EN-TÊTES DE LA FEUILLE CONSOLIDÉE
+    '==================================================================================
+    ' Structure finale qu'on veut avoir dans BDD_Costs
+    Dim newHeaders As Variant
+    newHeaders = Array("Entity", "Year", "Month", "Interco", "Num Compte", "Name", "Memo/Description", "Class", "Concat", "Compte", "Lib Compte", "P&L", "Fournisseur", "P&L LC", "Currency", "P&L USD")
+
+    ' Écrire ces en-têtes dans la première ligne de BDD_Costs
+    For i = 1 To UBound(newHeaders) + 1
+        wsDest.Cells(1, i).Value = newHeaders(i - 1)
+    Next i
+
+    '==================================================================================
+    ' PRÉPARATION DES STRUCTURES DE DONNÉES
+    '==================================================================================
+    
+    ' Créer une collection pour faciliter la manipulation des en-têtes
+    Set headers = New Collection
+    For i = 1 To UBound(newHeaders) + 1
+        headers.Add Trim(newHeaders(i - 1))  ' Trim enlève les espaces avant/après
+    Next i
+
+    ' Identifier où se trouve chaque colonne importante (pour les formules plus tard)
+    For i = 1 To headers.Count
+        Select Case Trim(headers(i))
+            Case "P&L LC": formatColLC = i         ' Colonne à formater en monétaire
+            Case "P&L USD": formatColUSD = i       ' Colonne à formater en monétaire
+            Case "P&L": plColPos = i               ' Pour les formules de recherche
+            Case "Fournisseur": fournisseurColPos = i
+            Case "Compte": compteColPos = i        ' Clé pour recherches dans Transco_New
+            Case "Lib Compte": libCompteColPos = i ' Calculé par formule
+            Case "Currency": currencyColPos = i
+            Case "Name": nameColPos = i
+            Case "Memo/Description": memoColPos = i
+            Case "Num Compte": numCompteColPos = i
+            Case "Class": classColPos = i
+            Case "Concat": concatColPos = i        ' Calculé par formule
+            Case "Interco": intercoColPos = i
+        End Select
+    Next i
+
+    '==================================================================================
+    ' VÉRIFICATION DES COLONNES CRITIQUES
+    '==================================================================================
+    ' Certaines colonnes sont absolument nécessaires pour les formules
+    missingColumns = ""
+    If plColPos = 0 Then missingColumns = missingColumns & "P&L, "
+    If compteColPos = 0 Then missingColumns = missingColumns & "Compte, "
+    If libCompteColPos = 0 Then missingColumns = missingColumns & "Lib Compte, "
+    If classColPos = 0 Then missingColumns = missingColumns & "Class, "
+    If concatColPos = 0 Then missingColumns = missingColumns & "Concat, "
+    If intercoColPos = 0 Then missingColumns = missingColumns & "Interco, "
+
+    If missingColumns <> "" Then
+        ' Enlever la dernière virgule et afficher l'erreur
+        missingColumns = Left(missingColumns, Len(missingColumns) - 2)
+        MsgBox "Erreur : Les colonnes critiques suivantes n'ont pas été trouvées dans les en-têtes : " & missingColumns, vbCritical
+        Exit Sub
+    End If
+
+    ' Fixer la hauteur des lignes pour un affichage uniforme
+    wsDest.Rows.RowHeight = 14
+
+    ' Commencer à importer à partir de la ligne 2 (ligne 1 = en-têtes)
+    destRow = 2
+
+    '==================================================================================
+    ' BOUCLE PRINCIPALE : TRAITER CHAQUE FEUILLE SOURCE
+    '==================================================================================
+    For Each wsName In selectedSheets
+        ' Réinitialiser la variable feuille
+        Set ws = Nothing
+        
+        ' Essayer de trouver la feuille (elle pourrait ne pas exister)
+        On Error Resume Next
+        Set ws = ThisWorkbook.Worksheets(wsName)
+        On Error GoTo ErrorHandler
+        
+        ' Si la feuille n'existe pas, passer à la suivante
+        If ws Is Nothing Then GoTo NextSheet
+
+        ' Vérifier si on traite une feuille avec des règles spéciales
+        isFFSASorInno = (ws.Name = "Costs_FF_SAS" Or ws.Name = "Costs_Inno")
+
+        '==============================================================================
+        ' ANALYSE DES COLONNES DE LA FEUILLE SOURCE
+        '==============================================================================
+        
+        ' Créer un dictionnaire pour savoir où est chaque colonne
+        Set colMap = CreateObject("Scripting.Dictionary")
+        useUSDforLC = False
+
+        ' Lire les en-têtes de la feuille source (ligne 1)
+        For c = 1 To ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+            headerName = Trim(CStr(ws.Cells(1, c).Value))
+            If Len(headerName) > 0 Then
+                ' Stocker : nom de colonne ? numéro de colonne
+                colMap(headerName) = c
+            End If
+        Next c
+
+        '==============================================================================
+        ' VÉRIFICATION DES COLONNES OBLIGATOIRES
+        '==============================================================================
+        
+        ' Ces colonnes DOIVENT exister dans chaque feuille source
+        requiredHeaders = Array("Entity", "Year", "Month", "P&L LC", "P&L USD")
+        
+        For i = LBound(requiredHeaders) To UBound(requiredHeaders)
+            headerName = requiredHeaders(i)
+            
+            ' Cas spécial : pour Costs_Inc, on utilise P&L USD à la place de P&L LC
+            If headerName = "P&L LC" And ws.Name = "Costs_Inc" Then
+                If Not colMap.exists("P&L USD") Then
+                    MsgBox "La feuille '" & ws.Name & "' ne contient pas 'P&L USD' pour remplacer 'P&L LC'.", vbCritical
+                    GoTo NextSheet
+                Else
+                    useUSDforLC = True  ' Se rappeler de cette exception
+                End If
+            ElseIf Not colMap.exists(headerName) Then
+                ' La colonne obligatoire manque
+                MsgBox "La feuille '" & ws.Name & "' ne contient pas la colonne '" & headerName & "'. Elle sera ignorée.", vbExclamation
+                GoTo NextSheet
+            End If
+        Next i
+
+        '==============================================================================
+        ' VÉRIFICATION DES COLONNES OPTIONNELLES
+        '==============================================================================
+        ' Ces colonnes peuvent exister ou pas, on s'adapte
+        hasFournisseur = colMap.exists("Fournisseur")
+        hasCompte = colMap.exists("Compte")
+        hasLibCompte = colMap.exists("Lib Compte")
+        hasPL = colMap.exists("P&L")
+        hasName = colMap.exists("Name")
+        hasMemo = colMap.exists("Memo/Description")
+        hasLibelle = colMap.exists("Libellé")          ' Pour FF_SAS/Inno
+        hasComplement = colMap.exists("Complément")    ' Pour FF_SAS/Inno
+        hasNumCompte = colMap.exists("Num Compte")
+        hasJrnFolio = colMap.exists("Jrn Folio")      ' Pour FF_SAS/Inno
+        hasClass = colMap.exists("Class")
+        hasInterco = colMap.exists("Interco")
+
+        '==============================================================================
+        ' PRÉPARATION DU TABLEAU DE DONNÉES
+        '==============================================================================
+        
+        ' Trouver la dernière ligne avec des données
+        lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+        If lastRow < 2 Then GoTo NextSheet  ' Pas de données (seulement les en-têtes)
+        
+        ' Calculer combien de lignes on va copier
+        srcRowCount = lastRow - 1  ' -1 car on ne compte pas la ligne d'en-têtes
+        
+        ' Créer un tableau temporaire pour toutes les données
+        ' Dimensions : [nombre de lignes] x [nombre de colonnes]
+        ReDim output(1 To srcRowCount, 1 To headers.Count)
+
+        '==============================================================================
+        ' REMPLISSAGE DU TABLEAU AVEC LES DONNÉES
+        '==============================================================================
+        ' Parcourir chaque ligne de données (de 2 à lastRow)
+        For r = 2 To lastRow
+            ' Lire l'année et le mois (nécessaires pour certaines règles)
+            If IsNumeric(ws.Cells(r, colMap("Year")).Value) Then
+                currentYear = CLng(ws.Cells(r, colMap("Year")).Value)
+            Else
+                currentYear = 0  ' Valeur par défaut si pas numérique
+            End If
+
+            If IsNumeric(ws.Cells(r, colMap("Month")).Value) Then
+                currentMonth = CLng(ws.Cells(r, colMap("Month")).Value)
+            Else
+                currentMonth = 0
+            End If
+
+            ' Parcourir chaque colonne de destination et la remplir
+            For i = 1 To headers.Count
+                headerName = headers(i)
+                
+                ' Logique différente selon le type de colonne
+                Select Case headerName
+                    Case "Entity"
+                        ' Copier directement le nom de l'entité
+                        cellValue = ws.Cells(r, colMap("Entity")).Value
+                        
+                    Case "Year"
+                        cellValue = currentYear
+                        
+                    Case "Month"
+                        cellValue = currentMonth
+                        
+                    Case "Interco"
+                        ' Colonne optionnelle
+                        If hasInterco Then
+                            cellValue = ws.Cells(r, colMap("Interco")).Value
+                        Else
+                            cellValue = ""
+                        End If
+                        
+                    Case "Num Compte"
+                        ' Logique complexe pour FF_SAS/Inno
+                        If hasNumCompte Then
+                            cellValue = ws.Cells(r, colMap("Num Compte")).Value
+                            ' Si vide et qu'on est sur FF_SAS/Inno, utiliser Jrn Folio
+                            If isFFSASorInno And hasJrnFolio And (Trim(CStr(cellValue)) = "" Or IsEmpty(cellValue)) Then
+                                cellValue = ws.Cells(r, colMap("Jrn Folio")).Value
+                            End If
+                        ElseIf isFFSASorInno And hasJrnFolio Then
+                            ' Pas de Num Compte mais on a Jrn Folio
+                            cellValue = ws.Cells(r, colMap("Jrn Folio")).Value
+                        Else
+                            cellValue = ""
+                        End If
+                        
+                    Case "Name"
+                        ' Pour FF_SAS/Inno, utiliser "Libellé" au lieu de "Name"
+                        If isFFSASorInno And hasLibelle Then
+                            cellValue = ws.Cells(r, colMap("Libellé")).Value
+                        ElseIf hasName Then
+                            cellValue = ws.Cells(r, colMap("Name")).Value
+                        Else
+                            cellValue = ""
+                        End If
+                        
+                    Case "Memo/Description"
+                        ' Pour FF_SAS/Inno, utiliser "Complément"
+                        If isFFSASorInno And hasComplement Then
+                            cellValue = ws.Cells(r, colMap("Complément")).Value
+                        ElseIf hasMemo Then
+                            cellValue = ws.Cells(r, colMap("Memo/Description")).Value
+                        Else
+                            cellValue = ""
+                        End If
+                        
+                    Case "Class"
+                        ' Pour FF_SAS/Inno, utiliser "Complément"
+                        If isFFSASorInno And hasComplement Then
+                            cellValue = ws.Cells(r, colMap("Complément")).Value
+                        ElseIf hasClass Then
+                            cellValue = ws.Cells(r, colMap("Class")).Value
+                        Else
+                            cellValue = ""
+                        End If
+                        
+                    Case "Compte"
+                        ' Simple copie si la colonne existe
+                        If hasCompte Then
+                            cellValue = ws.Cells(r, colMap("Compte")).Value
+                        Else
+                            cellValue = ""
+                        End If
+                        
+                    Case "Concat"
+                        ' Cette colonne sera calculée par une formule plus tard
+                        cellValue = ""
+                        
+                    Case "Lib Compte"
+                        ' Règle complexe selon l'année
+                        If currentYear = 2024 Then
+                            ' Pour 2024, importer les données existantes
+                            If hasLibCompte Then
+                                cellValue = ws.Cells(r, colMap("Lib Compte")).Value
+                            ElseIf isFFSASorInno Then
+                                ' Pour FF_SAS/Inno, utiliser la valeur de "Compte"
+                                cellValue = ws.Cells(r, colMap("Compte")).Value
+                            Else
+                                cellValue = ""
+                            End If
+                        Else
+                            ' Pour 2025, sera calculé par formule plus tard
+                            cellValue = ""
+                        End If
+                        
+                    Case "P&L"
+                        ' Règle selon l'année
+                        If currentYear = 2024 And hasPL Then
+                            ' Pour 2024, importer les données
+                            cellValue = ws.Cells(r, colMap("P&L")).Value
+                        Else
+                            ' Pour 2025, sera calculé par formule plus tard
+                            cellValue = ""
+                        End If
+                        
+                    Case "Fournisseur"
+                        If hasFournisseur Then
+                            cellValue = ws.Cells(r, colMap("Fournisseur")).Value
+                        Else
+                            cellValue = ""
+                        End If
+                        
+                    Case "P&L LC"
+                        ' Cas spécial pour Costs_Inc : utiliser USD
+                        If useUSDforLC Then
+                            cellValue = ws.Cells(r, colMap("P&L USD")).Value
+                        Else
+                            cellValue = ws.Cells(r, colMap("P&L LC")).Value
+                        End If
+                        
+                    Case "P&L USD"
+                        cellValue = ws.Cells(r, colMap("P&L USD")).Value
+                        
+                    Case "Currency"
+                        ' Sera calculé par formule plus tard
+                        cellValue = ""
+                        
+                    Case Else
+                        ' Pour toute autre colonne, copier si elle existe
+                        If colMap.exists(headerName) Then
+                            cellValue = ws.Cells(r, colMap(headerName)).Value
+                        Else
+                            cellValue = ""
+                        End If
+                End Select
+
+                ' Nettoyer la valeur avant de la stocker
+                If IsError(cellValue) Then
+                    output(r - 1, i) = ""  ' Remplacer les erreurs par du vide
+                ElseIf IsEmpty(cellValue) Then
+                    output(r - 1, i) = ""
+                ElseIf IsNumeric(cellValue) Then
+                    output(r - 1, i) = cellValue  ' Garder les nombres tels quels
+                Else
+                    output(r - 1, i) = CStr(cellValue)  ' Convertir en texte
+                End If
+            Next i
+        Next r
+
+        '==============================================================================
+        ' COLLAGE DES DONNÉES DANS BDD_COSTS
+        '==============================================================================
+        ' Coller tout le tableau d'un coup (plus rapide que cellule par cellule)
+        wsDest.Range(wsDest.Cells(destRow, 1), wsDest.Cells(destRow + srcRowCount - 1, headers.Count)).Value = output
+
+        '==============================================================================
+        ' FORMATAGE DES COLONNES MONÉTAIRES
+        '==============================================================================
+        ' Appliquer un format "nombre avec séparateurs" aux colonnes d'argent
+        If formatColLC > 0 Then
+            wsDest.Range(wsDest.Cells(destRow, formatColLC), wsDest.Cells(destRow + srcRowCount - 1, formatColLC)).NumberFormat = "# ##0;(# ##0);""-"""
+        End If
+        If formatColUSD > 0 Then
+            wsDest.Range(wsDest.Cells(destRow, formatColUSD), wsDest.Cells(destRow + srcRowCount - 1, formatColUSD)).NumberFormat = "# ##0;(# ##0);""-"""
+        End If
+
+        ' Préparer la position pour la feuille suivante
+        destRow = destRow + srcRowCount
+        
+NextSheet:
+    Next wsName
+
+'==================================================================================
+' APPLICATION DES FORMULES APRÈS IMPORT
+'==================================================================================
+' Maintenant qu'on a toutes les données, on calcule les colonnes complexes
+
+' Trouver la dernière ligne avec des données
+lastRow = wsDest.Cells(wsDest.Rows.Count, 1).End(xlUp).Row
+
+If lastRow > 1 Then
+    ' Sauvegarder les paramètres Excel et optimiser pour les formules
+    Dim oldCalculationState As Long
+    oldCalculationState = Application.Calculation
+    Application.Calculation = xlCalculationManual  ' Pas de calcul pendant qu'on écrit
+    Application.EnableEvents = False
+    
+    ' Trouver la dernière ligne de la feuille Transco_New (pour les formules)
+    Dim lastRowTransco As Long
+    lastRowTransco = 20000
+    
+    '==========================================================================
+    ' FORMULE POUR LA COLONNE "CONCAT"
+    '==========================================================================
+    ' Cette formule combine plusieurs colonnes en une seule chaîne
+For r = 2 To lastRow
+    wsDest.Cells(r, concatColPos).Formula = _
+        "=CONCAT(" & _
+        wsDest.Cells(r, compteColPos).Address(False, False) & "," & _
+        wsDest.Cells(r, nameColPos).Address(False, False) & "," & _
+        wsDest.Cells(r, classColPos).Address(False, False) & "," & _
+        wsDest.Cells(r, memoColPos).Address(False, False) & ")"
+Next r
+
+    '==========================================================================
+    ' FORMULE POUR LA COLONNE "CURRENCY" (NOUVEAU)
+    '==========================================================================
+    ' Recherche la devise dans Transco_New en fonction de l'entité (colonne A)
+    For r = 2 To lastRow
+        wsDest.Cells(r, currencyColPos).Formula = _
+            "=INDEX(Transco_New!$B$2:$B$" & lastRowTransco & ",MATCH(" & _
+            wsDest.Cells(r, 1).Address(False, False) & ",Transco_New!$A$2:$A$" & lastRowTransco & ",0))"
+    Next r
+
+    '==========================================================================
+    ' FORMULE POUR LA COLONNE "LIB COMPTE" (ANNÉE 2025 SEULEMENT)
+    '==========================================================================
+    ' Recherche dans Transco_New pour trouver le libellé correspondant au compte
+    For r = 2 To lastRow
+        currentYear = wsDest.Cells(r, 2).Value
+        If currentYear = 2025 Then
+            If wsDest.Cells(r, 1).Value = "Costs_FF_SAS" Or wsDest.Cells(r, 1).Value = "Costs_Inno" Then
+                ' Cas spécial : pour FF_SAS/Inno, copier simplement la valeur du compte
+                wsDest.Cells(r, libCompteColPos).Value = wsDest.Cells(r, compteColPos).Value
+            Else
+                ' Formule de recherche complexe dans Transco_New
+                Dim formulaText As String
+                formulaText = "=INDEX(Transco_New!$G$2:$G$" & lastRowTransco & ",MATCH(1,(Transco_New!$D$2:$D$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$F$2:$F$" & lastRowTransco & "=" & wsDest.Cells(r, compteColPos).Address(False, False) & "),0))"
+                wsDest.Cells(r, libCompteColPos).FormulaArray = formulaText
+            End If
+        End If
+    Next r
+
+    '==========================================================================
+    ' FORMULE POUR LA COLONNE "P&L" (ANNÉE 2025 SEULEMENT)
+    '==========================================================================
+    ' Recherche dans Transco_New avec fallback si pas trouvé
+    For r = 2 To lastRow
+        currentYear = wsDest.Cells(r, 2).Value
+        If currentYear = 2025 Then
+            Dim formulaTextPL As String
+            ' Formule complexe avec IFERROR pour avoir une valeur de secours
+            formulaTextPL = "=IFERROR(" & _
+                "INDEX(Transco_New!$S$2:$S$" & lastRowTransco & ",MATCH(1,(Transco_New!$K$2:$K$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$L$2:$L$" & lastRowTransco & "=" & wsDest.Cells(r, concatColPos).Address(False, False) & "),0))," & _
+                "INDEX(Transco_New!$H$2:$H$" & lastRowTransco & ",MATCH(1,(Transco_New!$D$2:$D$" & lastRowTransco & "=$A" & r & ")*(Transco_New!$F$2:$F$" & lastRowTransco & "=" & wsDest.Cells(r, compteColPos).Address(False, False) & "),0))" & _
+                ")"
+            wsDest.Cells(r, plColPos).FormulaArray = formulaTextPL
+        End If
+    Next r
+    
+    ' Restaurer les paramètres Excel
+    Application.EnableEvents = True
+    Application.Calculation = oldCalculationState
+End If
+
+    ' Réappliquer la taille de ligne uniforme
+    wsDest.Rows.RowHeight = 14
+
+'==================================================================================
+' NETTOYAGE ET FINALISATION
+'==================================================================================
+CleanUp:
+    ' Réactiver Excel pour que l'utilisateur puisse voir le résultat
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    Application.EnableEvents = True
+    
+    ' Message de confirmation
+    MsgBox "Consolidation terminée dans 'BDD_Costs'.", vbInformation
+    Exit Sub
+
+'==================================================================================
+' GESTION D'ERREURS
+'==================================================================================
+ErrorHandler:
+    ' Si une erreur survient, afficher un message explicite
+    MsgBox "Une erreur est survenue : " & Err.Description & vbCrLf & _
+           "À la ligne : " & Erl, vbCritical
+    Resume CleanUp
+
+End Sub
+
+'==================================================================================
+' NOTES TECHNIQUES POUR COMPRENDRE LE CODE
+'==================================================================================
+'
+' CONCEPTS VBA UTILISÉS :
+'
+' 1. COLLECTIONS vs DICTIONNAIRES :
+'    - Collection : liste ordonnée (headers.Add "Entity")
+'    - Dictionary : paires clé-valeur (colMap("Entity") = 5)
+'
+' 2. VARIABLES OBJECT :
+'    - Dim ws As Worksheet : variable qui pointe vers une feuille
+'    - Set ws = ... : obligatoire pour affecter un objet
+'
+' 3. GESTION D'ERREURS :
+'    - On Error GoTo ErrorHandler : si erreur, aller à cette étiquette
+'    - On Error Resume Next : ignorer l'erreur et continuer
+'
+' 4. OPTIMISATION PERFORMANCE :
+'    - ScreenUpdating = False : pas de rafraîchissement visuel
+'    - Calculation = Manual : pas de recalcul automatique
+'    - Copie par blocs (Range.Value = array) au lieu de cellule par cellule
+'
+' 5. FORMULES MATRICIELLES :
+'    - FormulaArray : pour des formules complexes avec critères multiples
+'    - INDEX/MATCH : alternative plus puissante à RECHERCHEV
+'
+' 6. TYPES DE DONNÉES :
+'    - Variant : peut contenir n'importe quoi (nombre, texte, date...)
+'    - Long : nombre entier (pour les compteurs, positions)
+'    - Boolean : True/False (pour les flags logiques)
+'    - String : chaîne de caractères
+'
+' FLUX D'EXÉCUTION :
+' 1. Initialisation et vérifications
+' 2. Nettoyage de la feuille destination
+' 3. Pour chaque feuille source :
+'    a. Analyser sa structure
+'    b. Mapper ses colonnes
+'    c. Copier ses données dans un tableau
+'    d. Coller le tableau dans BDD_Costs
+' 4. Appliquer les formules complexes
+' 5. Nettoyer et finaliser
+'
+'==================================================================================
