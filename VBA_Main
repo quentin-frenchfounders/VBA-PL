@@ -45,6 +45,7 @@ Sub Consolidate_BDD()
     Dim concat2ColPos As Long         ' Position colonne "Concat2"
     Dim plTranscoColPos As Long       ' Position colonne "P&L Transco"
     Dim plSpeTranscoColPos As Long    ' Position colonne "P&L Spe Transco"
+    Dim manualAutoColPos As Long      ' Position colonne "Manual_Auto"
 
    
     ' Variables logiques (True/False) pour savoir quoi faire
@@ -119,7 +120,7 @@ Sub Consolidate_BDD()
     '==================================================================================
     ' Structure finale qu'on veut avoir dans BDD_Costs
     Dim newHeaders As Variant
-    newHeaders = Array("Entity", "Year", "Month", "Interco", "Num Compte", "Name", "Memo/Description", "Class", "Concat", "Concat2", "Compte", "Lib Compte", "P&L Transco", "P&L Spe Transco", "P&L", "Fournisseur", "P&L LC", "Currency", "P&L USD")
+    newHeaders = Array("Entity", "Year", "Month", "Interco", "Num Compte", "Name", "Memo/Description", "Class", "Concat", "Concat2", "Compte", "Lib Compte", "P&L Transco", "P&L Spe Transco", "P&L", "Fournisseur", "P&L LC", "Currency", "P&L USD", "Manual_Auto")
 
 
     ' Écrire ces en-têtes dans la première ligne de BDD_Costs
@@ -156,6 +157,7 @@ Sub Consolidate_BDD()
             Case "Concat2": concat2ColPos = i
             Case "P&L Transco": plTranscoColPos = i
             Case "P&L Spe Transco": plSpeTranscoColPos = i
+            Case "Manual_Auto": manualAutoColPos = i
         End Select
     Next i
 
@@ -595,6 +597,18 @@ If lastRow > 1 Then
             End With
         End If
     Next r
+    
+    '==========================================================================
+    ' FORMULE POUR LA COLONNE "Manual_Auto"
+    '==========================================================================
+    ' Compare la colonne P&L (O) et P&L Spe Transco (N), et vérifie si P&L est vide.
+    For r = 2 To lastRow
+        ' On s'assure que les colonnes nécessaires ont bien été trouvées
+        If plColPos > 0 And plSpeTranscoColPos > 0 And manualAutoColPos > 0 Then
+            wsDest.Cells(r, manualAutoColPos).Formula = _
+                "=IF(OR(ISBLANK(" & wsDest.Cells(r, plColPos).Address(False, False) & ")," & wsDest.Cells(r, plColPos).Address(False, False) & "<>" & wsDest.Cells(r, plSpeTranscoColPos).Address(False, False) & "),""Auto"",""Manually"")"
+        End If
+    Next r
 
     ' Restaurer les paramètres Excel
     Application.EnableEvents = True
@@ -627,4 +641,6 @@ ErrorHandler:
     Resume CleanUp
 
 End Sub
+
+
 
